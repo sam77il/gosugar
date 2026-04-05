@@ -52,6 +52,22 @@ func (s *sugar) Get(path string, sh sugarHandler) {
 	addRoute(http.MethodGet, path, sh, s.cors)
 }
 
+func (s *sugar) Post(path string, sh sugarHandler) {
+	addRoute(http.MethodPost, path, sh, s.cors)
+}
+
+func (s *sugar) Delete(path string, sh sugarHandler) {
+	addRoute(http.MethodDelete, path, sh, s.cors)
+}
+
+func (s *sugar) Patch(path string, sh sugarHandler) {
+	addRoute(http.MethodPatch, path, sh, s.cors)
+}
+
+func (s *sugar) Put(path string, sh sugarHandler) {
+	addRoute(http.MethodPut, path, sh, s.cors)
+}
+
 func New(config *Config) *sugar {
 	sugarMux = &SugarMux{
 		ServeMux: http.NewServeMux(),

@@ -1,6 +1,8 @@
 package sugar
 
-import "net/http"
+import (
+	"net/http"
+)
 
 type SugarRequest struct {
 	Method           string
@@ -14,6 +16,14 @@ type SugarRequest struct {
 	req              *http.Request
 }
 
-func (s SugarRequest) GetParam(slug string) string {
+func (s *SugarRequest) GetQuery(query string) string {
+	queries := s.req.URL.Query()
+	if queries[query][0] != "" {
+		return  queries[query][0]
+	}
+	return ""
+}
+
+func (s *SugarRequest) GetParam(slug string) string {
 	return s.req.PathValue(slug)
 }
