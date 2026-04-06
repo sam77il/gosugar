@@ -54,8 +54,7 @@ type route struct {
 
 func (s *sugarMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	requestSegments := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
-	path := strings.Trim(req.URL.Path, "/")
-	fmt.Println(path)
+	w.Header().Add("X-Powered-By", "Sugar")
 	for _, route := range s.router.routes {
 		if route.method != req.Method {
 			continue
@@ -82,11 +81,17 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resDone := make(chan struct{})
+	mwIndex := slices.IndexFunc(s.router.middlewares, func(m *SugarMiddleware) bool {
+		requestSegments := strings.Split(req.URL.Path, "/")
+		mwPathSegments := strings.Split(m.URL, "/")
+		starIndex := slices.Index(mwPathSegments, "*")
+
+		return slices.Equal(requestSegments[:starIndex], mwPathSegments[:starIndex])
+	})
+
+	resDone := make(chan int)
 	go func() {
 		defer close(resDone)
-
-		w.Header().Add("X-Powered-By", "Sugar")
 
 		if s.config.Cors.Enabled {
 			origin := req.Header.Get("Origin")
@@ -103,14 +108,6 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 				return
 			}
 		}
-
-		mwIndex := slices.IndexFunc(s.router.middlewares, func(m *SugarMiddleware) bool {
-			requestSegments := strings.Split(req.URL.Path, "/")
-			mwPathSegments := strings.Split(m.URL, "/")
-			starIndex := slices.Index(mwPathSegments, "*")
-
-			return slices.Equal(requestSegments[:starIndex], mwPathSegments[:starIndex])
-		})
 
 		handlerContext := &SugarContext{
 			Request: &SugarRequest{
@@ -150,7 +147,7 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 	case <- ctx.Done():
 		http.Error(w, "Request timed out", http.StatusGatewayTimeout)
 	case <- resDone:
-		fmt.Println("done")
+		
 	}
 }
 
@@ -179,31 +176,26 @@ func (s *sugar) Middleware(url string, handler func(*SugarContext, func())) {
 func (s *sugar) Get(path string, sh sugarHandler) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	s.router.routes = append(s.router.routes, &route{method: http.MethodGet, path: path, handler: sh, segments: segments})
-	// addRoute(http.MethodGet, path, sh, s.config)
 }
 
 func (s *sugar) Post(path string, sh sugarHandler) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	s.router.routes = append(s.router.routes, &route{method: http.MethodPost, path: path, handler: sh, segments: segments})
-	// addRoute(http.MethodPost, path, sh, s.config)
 }
 
 func (s *sugar) Delete(path string, sh sugarHandler) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	s.router.routes = append(s.router.routes, &route{method: http.MethodDelete, path: path, handler: sh, segments: segments})
-	// addRoute(http.MethodDelete, path, sh, s.config)
 }
 
 func (s *sugar) Patch(path string, sh sugarHandler) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	s.router.routes = append(s.router.routes, &route{method: http.MethodPatch, path: path, handler: sh, segments: segments})
-	// addRoute(http.MethodPatch, path, sh, s.config)
 }
 
 func (s *sugar) Put(path string, sh sugarHandler) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	s.router.routes = append(s.router.routes, &route{method: http.MethodPut, path: path, handler: sh, segments: segments})
-	// addRoute(http.MethodPut, path, sh, s.config)
 }
 
 func New(config *Config) *sugar {
