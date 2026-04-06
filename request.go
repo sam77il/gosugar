@@ -15,6 +15,7 @@ type SugarRequest struct {
 	URL              string
 	GoCtx         context.Context
 	req              *http.Request
+	Params map[string]string
 }
 
 func (s *SugarRequest) GetQuery(query string) string {
