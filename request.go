@@ -1,6 +1,7 @@
 package sugar
 
 import (
+	"context"
 	"net/http"
 )
 
@@ -12,7 +13,7 @@ type SugarRequest struct {
 	Header           http.Header
 	Body             []byte
 	URL              string
-	Metadata         []byte
+	GoCtx         context.Context
 	req              *http.Request
 }
 
@@ -26,4 +27,8 @@ func (s *SugarRequest) GetQuery(query string) string {
 
 func (s *SugarRequest) GetParam(slug string) string {
 	return s.req.PathValue(slug)
+}
+
+func (s *SugarRequest) AddCtx(key any, value any) {
+	s.GoCtx = context.WithValue(s.GoCtx, key, value)
 }

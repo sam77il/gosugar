@@ -9,9 +9,13 @@ type SugarResponse struct {
 	res http.ResponseWriter
 }
 
-func (s *SugarResponse) JSON(statusCode int, v any) {
+func (s *SugarResponse) JSON(v any) {
 	s.res.Header().Add("Content-Type", "application/json")
+	enc := json.NewEncoder(s.res)
+	enc.Encode(v)
+}
+
+func (s *SugarResponse) Status(statusCode int) *SugarResponse {
 	s.res.WriteHeader(statusCode)
-	t := json.NewEncoder(s.res)
-	t.Encode(v)
+	return s
 }

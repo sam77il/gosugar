@@ -1,6 +1,7 @@
 package sugar
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,18 +9,18 @@ import (
 	"strings"
 )
 
-func addRoute(method string, path string, sh sugarHandler, cors CorsSettings) {
+func addRoute(method string, path string, sh sugarHandler, cfg *Config) {
 	sugarMux.HandleFunc(method+" "+path, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("X-Powered-By", "Sugar")
 
-		if cors.Enabled {
+		if cfg.Cors.Enabled {
 			origin := r.Header.Get("Origin")
 
-			if origin != "" && slices.Contains(cors.Origins, origin) {
+			if origin != "" && slices.Contains(cfg.Cors.Origins, origin) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", strings.Join(cors.Methods, ", "))
-				w.Header().Set("Access-Control-Allow-Headers", strings.Join(cors.Headers, ", "))
-				w.Header().Set("Access-Control-Allow-Credentials", fmt.Sprintf("%t", cors.Credentials))
+				w.Header().Set("Access-Control-Allow-Methods", strings.Join(cfg.Cors.Methods, ", "))
+				w.Header().Set("Access-Control-Allow-Headers", strings.Join(cfg.Cors.Headers, ", "))
+				w.Header().Set("Access-Control-Allow-Credentials", fmt.Sprintf("%t", cfg.Cors.Credentials))
 			}
 
 			if r.Method == http.MethodOptions {
@@ -35,6 +36,8 @@ func addRoute(method string, path string, sh sugarHandler, cors CorsSettings) {
 
 			return slices.Equal(requestSegments[:starIndex], mwPathSegments[:starIndex])
 		})
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		defer cancel()
 
 		handlerContext := &SugarContext{
 			Request: &SugarRequest{
@@ -42,6 +45,7 @@ func addRoute(method string, path string, sh sugarHandler, cors CorsSettings) {
 				Header: r.Header,
 				URL:    r.URL.Path,
 				req:    r,
+				GoCtx: ctx,
 			},
 			Response: &SugarResponse{
 				res: w,

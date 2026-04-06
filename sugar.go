@@ -7,7 +7,6 @@ import (
 
 type sugar struct {
 	config *Config
-	cors CorsSettings
 }
 
 type SugarContext struct {
@@ -49,23 +48,23 @@ func (s *sugar) Middleware(url string, handler func(*SugarContext, func())) {
 }
 
 func (s *sugar) Get(path string, sh sugarHandler) {
-	addRoute(http.MethodGet, path, sh, s.cors)
+	addRoute(http.MethodGet, path, sh, s.config)
 }
 
 func (s *sugar) Post(path string, sh sugarHandler) {
-	addRoute(http.MethodPost, path, sh, s.cors)
+	addRoute(http.MethodPost, path, sh, s.config)
 }
 
 func (s *sugar) Delete(path string, sh sugarHandler) {
-	addRoute(http.MethodDelete, path, sh, s.cors)
+	addRoute(http.MethodDelete, path, sh, s.config)
 }
 
 func (s *sugar) Patch(path string, sh sugarHandler) {
-	addRoute(http.MethodPatch, path, sh, s.cors)
+	addRoute(http.MethodPatch, path, sh, s.config)
 }
 
 func (s *sugar) Put(path string, sh sugarHandler) {
-	addRoute(http.MethodPut, path, sh, s.cors)
+	addRoute(http.MethodPut, path, sh, s.config)
 }
 
 func New(config *Config) *sugar {
@@ -75,6 +74,5 @@ func New(config *Config) *sugar {
 
 	return &sugar{
 		config: config,
-		cors: config.Cors,
 	}
 }
