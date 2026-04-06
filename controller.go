@@ -10,11 +10,14 @@ import (
 )
 
 func addRoute(method string, path string, sh sugarHandler, cfg *Config) {
-	sugarMux.HandleFunc(method+" "+path, func(w http.ResponseWriter, r *http.Request) {
+	sugarMux.HandleFunc(method+" "+path, func(w http.ResponseWriter, req *http.Request) {
+		ctx, cancel := context.WithTimeout(req.Context(), cfg.Timeout)
+		defer cancel()
+		req = req.WithContext(ctx)
 		w.Header().Add("X-Powered-By", "Sugar")
 
 		if cfg.Cors.Enabled {
-			origin := r.Header.Get("Origin")
+			origin := req.Header.Get("Origin")
 
 			if origin != "" && slices.Contains(cfg.Cors.Origins, origin) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -23,28 +26,26 @@ func addRoute(method string, path string, sh sugarHandler, cfg *Config) {
 				w.Header().Set("Access-Control-Allow-Credentials", fmt.Sprintf("%t", cfg.Cors.Credentials))
 			}
 
-			if r.Method == http.MethodOptions {
+			if req.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
 		}
 
 		mwIndex := slices.IndexFunc(sugarMiddlewares, func(m SugarMiddleware) bool {
-			requestSegments := strings.Split(r.URL.Path, "/")
+			requestSegments := strings.Split(req.URL.Path, "/")
 			mwPathSegments := strings.Split(m.URL, "/")
 			starIndex := slices.Index(mwPathSegments, "*")
 
 			return slices.Equal(requestSegments[:starIndex], mwPathSegments[:starIndex])
 		})
-		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
-		defer cancel()
 
 		handlerContext := &SugarContext{
 			Request: &SugarRequest{
-				Method: r.Method,
-				Header: r.Header,
-				URL:    r.URL.Path,
-				req:    r,
+				Method: req.Method,
+				Header: req.Header,
+				URL:    req.URL.Path,
+				req:    req,
 				GoCtx: ctx,
 			},
 			Response: &SugarResponse{
@@ -53,8 +54,8 @@ func addRoute(method string, path string, sh sugarHandler, cfg *Config) {
 		}
 
 		// Checking method and adding body
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodTrace {
-			bodyContent, err := io.ReadAll(r.Body)
+		if req.Method != http.MethodGet && req.Method != http.MethodHead && req.Method != http.MethodTrace {
+			bodyContent, err := io.ReadAll(req.Body)
 			if err != nil {
 				fmt.Println("Error parsing body")
 				return
@@ -67,8 +68,8 @@ func addRoute(method string, path string, sh sugarHandler, cfg *Config) {
 			m.Handler(handlerContext, func() {
 				sh(handlerContext)
 			})
-		} else if r.Method == method {
-			sh(handlerContext)
+		} else if strings.EqualFold(req.Method, method) {
+    	sh(handlerContext)
 		}
 	})
 }

@@ -31,4 +31,5 @@ func (s *SugarRequest) GetParam(slug string) string {
 
 func (s *SugarRequest) AddCtx(key any, value any) {
 	s.GoCtx = context.WithValue(s.GoCtx, key, value)
+	s.req = s.req.WithContext(s.GoCtx)
 }
