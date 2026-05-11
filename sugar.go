@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 )
 
 type sugar struct {
@@ -29,7 +30,7 @@ type sugarHandler = func(*SugarContext)
 
 type SugarMiddleware struct {
 	URL string
-	Handler func(*SugarContext, func())
+	Handler func(*SugarContext)
 }
 
 type CorsSettings struct {
@@ -49,6 +50,8 @@ type route struct {
 	path string
 	method string
 	handler sugarHandler
+	extraHanders []sugarHandler
+	currentHandler int
 	segments []string
 }
 
@@ -85,8 +88,10 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 		requestSegments := strings.Split(req.URL.Path, "/")
 		mwPathSegments := strings.Split(m.URL, "/")
 		starIndex := slices.Index(mwPathSegments, "*")
-
-		return slices.Equal(requestSegments[:starIndex], mwPathSegments[:starIndex])
+		if starIndex >= 0 {
+			return slices.Equal(requestSegments[:starIndex], mwPathSegments[:starIndex])
+		}
+		return slices.Equal(requestSegments, mwPathSegments)
 	})
 
 	resDone := make(chan int)
@@ -135,10 +140,10 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 
 		if mwIndex >= 0 {
 			m := s.router.middlewares[mwIndex]
-			m.Handler(handlerContext, func() {
-				route.handler(handlerContext)
-			})
+			handlerContext.Request.Next = route.handler(handlerContext)
+			m.Handler(handlerContext)
 		} else {
+			handlerContext.Request.Next = route.extraHanders[route.currentHandler]
 			route.handler(handlerContext)
 		}
 	}()
@@ -166,16 +171,16 @@ func (s *sugar) Listen() {
 	}
 }
 
-func (s *sugar) Middleware(url string, handler func(*SugarContext, func())) {
+func (s *sugar) Middleware(url string, handler func(*SugarContext)) {
 	s.router.middlewares = append(s.router.middlewares, &SugarMiddleware{
 		URL: url,
 		Handler: handler,
 	})
 }
 
-func (s *sugar) Get(path string, sh sugarHandler) {
+func (s *sugar) Get(path string, sh sugarHandler, shs ...sugarHandler) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
-	s.router.routes = append(s.router.routes, &route{method: http.MethodGet, path: path, handler: sh, segments: segments})
+	s.router.routes = append(s.router.routes, &route{method: http.MethodGet, path: path, handler: sh, extraHanders: shs, segments: segments})
 }
 
 func (s *sugar) Post(path string, sh sugarHandler) {
@@ -198,9 +203,13 @@ func (s *sugar) Put(path string, sh sugarHandler) {
 	s.router.routes = append(s.router.routes, &route{method: http.MethodPut, path: path, handler: sh, segments: segments})
 }
 
-func New(config *Config) *sugar {
+func New(config Config) *sugar {
+	if config.Timeout == 0 {
+		config.Timeout = time.Second * 30
+	}
+
 	return &sugar{
-		config: config,
+		config: &config,
 		router: &sugarRouter{},
 	}
 }

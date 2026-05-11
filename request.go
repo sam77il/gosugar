@@ -16,6 +16,7 @@ type SugarRequest struct {
 	GoCtx         context.Context
 	req              *http.Request
 	Params map[string]string
+	Next func(*SugarContext)
 }
 
 func (s *SugarRequest) GetQuery(query string) string {
@@ -24,10 +25,6 @@ func (s *SugarRequest) GetQuery(query string) string {
 		return  queries[query][0]
 	}
 	return ""
-}
-
-func (s *SugarRequest) GetParam(slug string) string {
-	return s.req.PathValue(slug)
 }
 
 func (s *SugarRequest) AddCtx(key any, value any) {

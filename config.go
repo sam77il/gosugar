@@ -1,9 +1,11 @@
 package sugar
 
-import "time"
+import (
+	"time"
+)
 
 type Config struct {
-	Host    string
-	Cors    CorsSettings
-	Timeout time.Duration
+	Host    	string
+	Cors    	CorsSettings
+	Timeout 	time.Duration
 }
