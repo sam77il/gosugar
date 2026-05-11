@@ -14,13 +14,20 @@ type SugarRequest struct {
 	Header           http.Header
 	Body             []byte
 	URL              string
+	IP IP
 	GoCtx         context.Context
 	req              *http.Request
 	writer http.ResponseWriter
 	Params map[string]string
-	next func(*SugarContext)
+	next sugarHandler
 	extraHandlers []sugarHandler
 	currentHandler int
+}
+
+type IP struct {
+	Adress string
+	Extended string
+	Port string
 }
 
 func (s *SugarRequest) GetQuery(query string) string {

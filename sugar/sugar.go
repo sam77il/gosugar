@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"slices"
@@ -26,11 +27,11 @@ type SugarContext struct {
 	Response *SugarResponse
 }
 
-type sugarHandler = func(*SugarContext)
+type sugarHandler = func(*SugarContext) error
 
 type SugarMiddleware struct {
 	URL string
-	Handler func(*SugarContext)
+	Handler sugarHandler
 }
 
 type CorsSettings struct {
@@ -54,6 +55,8 @@ type route struct {
 	currentHandler int
 	segments []string
 }
+
+type J = map[string]any
 
 func (s *sugarMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	requestSegments := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
@@ -113,12 +116,17 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 				return
 			}
 		}
-
+		ip, port, err := net.SplitHostPort(req.RemoteAddr)
 		handlerContext := &SugarContext{
 			Request: &SugarRequest{
 				Method: req.Method,
 				Header: req.Header,
 				URL:    req.URL.Path,
+				IP: IP{
+					Adress: ip,
+					Port: port,
+					Extended: req.RemoteAddr,
+				},
 				req:    req,
 				GoCtx: ctx,
 				Params: params,
@@ -131,14 +139,12 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 		}
 
 		// Checking method and adding body
-		if req.Method != http.MethodGet && req.Method != http.MethodHead && req.Method != http.MethodTrace {
-			bodyContent, err := io.ReadAll(req.Body)
-			if err != nil {
-				fmt.Println("Error parsing body")
-				return
-			}
-			handlerContext.Request.Body = bodyContent
+		bodyContent, err := io.ReadAll(req.Body)
+		if err != nil {
+			fmt.Println("Error parsing body")
+			return
 		}
+		handlerContext.Request.Body = bodyContent
 
 		if mwIndex >= 0 {
 			m := s.router.middlewares[mwIndex]
@@ -174,7 +180,7 @@ func (s *sugar) Listen() {
 	}
 }
 
-func (s *sugar) Middleware(url string, handler func(*SugarContext)) {
+func (s *sugar) Middleware(url string, handler func(*SugarContext) error) {
 	s.router.middlewares = append(s.router.middlewares, &SugarMiddleware{
 		URL: url,
 		Handler: handler,

@@ -2,7 +2,6 @@ package sugar
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 )
 
@@ -10,13 +9,19 @@ type SugarResponse struct {
 	res http.ResponseWriter
 }
 
-func (s *SugarResponse) JSON(v any) {
-	s.res.Header().Add("Content-Type", "application/json")
+func (s *SugarResponse) JSON(v any) error {
+	s.res.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(s.res)
 	err := enc.Encode(v)
-	if err != nil {
-		fmt.Println(err)
-	}
+	
+	return err
+}
+
+func (s *SugarResponse) Text(v string) error {
+	s.res.Header().Set("Content-Type", "text/plain")
+	_, err := s.res.Write([]byte(v))
+
+	return err
 }
 
 func (s *SugarResponse) Status(statusCode int) *SugarResponse {
