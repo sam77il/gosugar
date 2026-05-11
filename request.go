@@ -2,6 +2,7 @@ package sugar
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 )
 
@@ -15,8 +16,11 @@ type SugarRequest struct {
 	URL              string
 	GoCtx         context.Context
 	req              *http.Request
+	writer http.ResponseWriter
 	Params map[string]string
-	Next func(*SugarContext)
+	next func(*SugarContext)
+	extraHandlers []sugarHandler
+	currentHandler int
 }
 
 func (s *SugarRequest) GetQuery(query string) string {
@@ -30,4 +34,19 @@ func (s *SugarRequest) GetQuery(query string) string {
 func (s *SugarRequest) AddCtx(key any, value any) {
 	s.GoCtx = context.WithValue(s.GoCtx, key, value)
 	s.req = s.req.WithContext(s.GoCtx)
+}
+
+func (s *SugarRequest) Next() {
+	if s.currentHandler >= len(s.extraHandlers) {
+		fmt.Println("no handlers")
+		return
+	}
+
+	next := s.extraHandlers[s.currentHandler]
+	s.currentHandler++
+
+	next(&SugarContext{
+		Request: s,
+		Response: &SugarResponse{res: s.writer},
+	})
 }

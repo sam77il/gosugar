@@ -50,7 +50,7 @@ type route struct {
 	path string
 	method string
 	handler sugarHandler
-	extraHanders []sugarHandler
+	extraHandlers []sugarHandler
 	currentHandler int
 	segments []string
 }
@@ -122,6 +122,8 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 				req:    req,
 				GoCtx: ctx,
 				Params: params,
+				writer: w,
+				extraHandlers: route.extraHandlers,
 			},
 			Response: &SugarResponse{
 				res: w,
@@ -140,10 +142,9 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 
 		if mwIndex >= 0 {
 			m := s.router.middlewares[mwIndex]
-			handlerContext.Request.Next = route.handler(handlerContext)
+			handlerContext.Request.next = route.handler
 			m.Handler(handlerContext)
 		} else {
-			handlerContext.Request.Next = route.extraHanders[route.currentHandler]
 			route.handler(handlerContext)
 		}
 	}()
@@ -157,13 +158,15 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 }
 
 func (s *sugar) Listen() {
+	address := fmt.Sprintf(":%d", s.config.Port)
 	server := &http.Server{
-		Addr: s.config.Host,
+		Addr: address,
 		Handler: &sugarMux{
 			router: s.router,
 			config: s.config,
 		},
 	}
+	fmt.Printf(">> Sugar started on port %d <<\n",s.config.Port)
 	err := server.ListenAndServe()
 	if err != nil {
 		fmt.Println(err.Error())
@@ -180,7 +183,7 @@ func (s *sugar) Middleware(url string, handler func(*SugarContext)) {
 
 func (s *sugar) Get(path string, sh sugarHandler, shs ...sugarHandler) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
-	s.router.routes = append(s.router.routes, &route{method: http.MethodGet, path: path, handler: sh, extraHanders: shs, segments: segments})
+	s.router.routes = append(s.router.routes, &route{method: http.MethodGet, path: path, handler: sh, extraHandlers: shs, segments: segments})
 }
 
 func (s *sugar) Post(path string, sh sugarHandler) {

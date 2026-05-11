@@ -5,7 +5,7 @@ import (
 )
 
 type Config struct {
-	Host    	string
+	Port    	int
 	Cors    	CorsSettings
 	Timeout 	time.Duration
 }
