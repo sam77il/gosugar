@@ -3,17 +3,14 @@ package main
 import (
 	"fmt"
 	"gosugar/sugar"
-	"net/http"
 )
 
 func main() {
 	server := sugar.New(sugar.Config{
 		Port: 8080,
-		Static: "./static",
 	})
 
-	fs := http.FileServer(http.Dir("./static"))
-	http.Handle("/files", fs)
+	server.Static("./static", "/files")
 
 	server.Get("/api", func (ctx *sugar.SugarContext) error {
 		fmt.Println(ctx.Request.IP)

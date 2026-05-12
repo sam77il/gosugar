@@ -2,11 +2,13 @@ package sugar
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -151,7 +153,10 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 			handlerContext.Request.next = route.handler
 			m.Handler(handlerContext)
 		} else {
-			route.handler(handlerContext)
+			err := route.handler(handlerContext)
+			if err != nil {
+				http.Error(w, "error on route " + route.path, 500)
+			}
 		}
 	}()
 
@@ -210,6 +215,37 @@ func (s *sugar) Patch(path string, sh sugarHandler) {
 func (s *sugar) Put(path string, sh sugarHandler) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	s.router.routes = append(s.router.routes, &route{method: http.MethodPut, path: path, handler: sh, segments: segments})
+}
+
+func (s *sugar) Static(folderPath string, urlPath string) {
+	staticFolderHandler := func (ctx *SugarContext) error {
+		fileName := ctx.Request.Params["file"]
+		cleanPath := filepath.Clean(fileName)
+		
+		if strings.Contains(cleanPath, "..") {
+			return errors.New("invalid path")
+		}
+
+		fullPath := filepath.Join(folderPath, cleanPath)
+		fmt.Println(fullPath)
+		absBase, _ := filepath.Abs(folderPath)
+		absFile, _ := filepath.Abs(fullPath)
+		fmt.Println(absBase)
+		fmt.Println(absFile)
+
+		if !strings.HasPrefix(absFile, absBase) {
+			return errors.New("access denied")
+		}
+
+		http.ServeFile(ctx.Request.writer, ctx.Request.req, absFile)
+
+		return nil
+	}
+
+	p := urlPath + "/*file"
+	segments := strings.Split(strings.Trim(p, "/"), "/")
+
+	s.router.routes = append(s.router.routes, &route{method: http.MethodGet, path:p, handler: staticFolderHandler, segments: segments})
 }
 
 func New(config Config) *sugar {

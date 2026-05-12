@@ -52,8 +52,11 @@ func (s *SugarRequest) Next() {
 	next := s.extraHandlers[s.currentHandler]
 	s.currentHandler++
 
-	next(&SugarContext{
+	err := next(&SugarContext{
 		Request: s,
 		Response: &SugarResponse{res: s.writer},
 	})
+	if err != nil {
+		http.Error(s.writer, "error on route " + s.URL, 500)
+	}
 }
