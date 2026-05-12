@@ -44,7 +44,6 @@ func (s *SugarRequest) AddCtx(key any, value any) {
 }
 
 func (s *SugarRequest) Next() error {
-	fmt.Println(len(s.extraHandlers))
 	if s.currentHandler >= len(s.extraHandlers) {
 		fmt.Println("no handlers")
 		return nil
