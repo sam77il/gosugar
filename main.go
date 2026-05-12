@@ -9,15 +9,26 @@ func main() {
 	server := sugar.New(sugar.Config{
 		Port: 8080,
 	})
+	router := server.Router()
 
-	server.Static("./static", "/files")
+	router.Static("./static", "/files")
 
-	server.Get("/api", func (ctx *sugar.SugarContext) error {
-		fmt.Println(ctx.Request.IP)
+	server.Middleware("/ipa/*", func(ctx *sugar.SugarContext) error {
+		fmt.Println(ctx.Request.Method)
+		return ctx.Request.Next()
+	})
+
+	ipa := server.Group("/ipa")
+	ipa.Get("/users", func (ctx *sugar.SugarContext) error {
+		return ctx.Response.Status(200).JSON(sugar.J{"success": true})
+	})
+
+	router.Get("/api", func (ctx *sugar.SugarContext) error {
 		if ctx.Request.Header.Get("lol") == "yes" {
 			ctx.Request.Next()
 			return nil
 		}
+
 		return ctx.Response.Status(400).JSON(map[string]any{"success": false, "message": "wrong method"})
 	}, func (ctx *sugar.SugarContext) error  {
 		fmt.Println("yes lol")

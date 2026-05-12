@@ -43,10 +43,11 @@ func (s *SugarRequest) AddCtx(key any, value any) {
 	s.req = s.req.WithContext(s.GoCtx)
 }
 
-func (s *SugarRequest) Next() {
+func (s *SugarRequest) Next() error {
+	fmt.Println(len(s.extraHandlers))
 	if s.currentHandler >= len(s.extraHandlers) {
 		fmt.Println("no handlers")
-		return
+		return nil
 	}
 
 	next := s.extraHandlers[s.currentHandler]
@@ -56,7 +57,5 @@ func (s *SugarRequest) Next() {
 		Request: s,
 		Response: &SugarResponse{res: s.writer},
 	})
-	if err != nil {
-		http.Error(s.writer, "error on route " + s.URL, 500)
-	}
+	return err
 }

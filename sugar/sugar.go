@@ -16,17 +16,19 @@ import (
 
 type sugar struct {
 	config *Config
-	router *sugarRouter
+	routers []*sugarRouter
+	middlewares []*SugarMiddleware
 }
 
 type sugarRouter struct {
+	prefix string
 	routes []*route
-	middlewares []*SugarMiddleware
 }
 
 type SugarContext struct {
 	Request *SugarRequest
 	Response *SugarResponse
+	Header http.Header
 }
 
 type sugarHandler = func(*SugarContext) error
@@ -44,11 +46,6 @@ type CorsSettings struct {
 	Credentials bool
 }
 
-type sugarMux struct {
-	router *sugarRouter
-	config *Config
-}
-
 type route struct {
 	path string
 	method string
@@ -60,36 +57,38 @@ type route struct {
 
 type J = map[string]any
 
-func (s *sugarMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (s *sugar) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	requestSegments := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
 	w.Header().Add("X-Powered-By", "Sugar")
-	for _, route := range s.router.routes {
-		if route.method != req.Method {
-			continue
+	for _, router := range s.routers {
+		for _, route := range router.routes {
+			if route.method != req.Method {
+				continue
+			}
+
+			params, ok :=
+				matchRoute(
+					route.segments,
+					requestSegments,
+				)
+
+				if !ok {
+				continue
+			}
+
+			s.handleRoute(w, req, route, params)
+			return
 		}
-
-		params, ok :=
-			matchRoute(
-				route.segments,
-				requestSegments,
-			)
-
-		if !ok {
-			continue
-		}
-
-		s.handleRoute(w, req, route, params)
-		return
 	}
 	http.Error(w, "route not found", 404)
 }
 
-func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *route, params map[string]string) {
+func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *route, params map[string]string) {
 	ctx, cancel := context.WithTimeout(req.Context(), s.config.Timeout)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	mwIndex := slices.IndexFunc(s.router.middlewares, func(m *SugarMiddleware) bool {
+	mwIndex := slices.IndexFunc(s.middlewares, func(m *SugarMiddleware) bool {
 		requestSegments := strings.Split(req.URL.Path, "/")
 		mwPathSegments := strings.Split(m.URL, "/")
 		starIndex := slices.Index(mwPathSegments, "*")
@@ -138,6 +137,7 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 			Response: &SugarResponse{
 				res: w,
 			},
+			Header: w.Header(),
 		}
 
 		// Checking method and adding body
@@ -149,9 +149,12 @@ func (s *sugarMux) handleRoute(w http.ResponseWriter, req *http.Request, route *
 		handlerContext.Request.Body = bodyContent
 
 		if mwIndex >= 0 {
-			m := s.router.middlewares[mwIndex]
-			handlerContext.Request.next = route.handler
-			m.Handler(handlerContext)
+			m := s.middlewares[mwIndex]
+			handlerContext.Request.extraHandlers = append(handlerContext.Request.extraHandlers, route.handler)
+			err := m.Handler(handlerContext)
+			if err != nil {
+				http.Error(w, "error on route " + route.path, 500)
+			}
 		} else {
 			err := route.handler(handlerContext)
 			if err != nil {
@@ -172,10 +175,7 @@ func (s *sugar) Listen() {
 	address := fmt.Sprintf(":%d", s.config.Port)
 	server := &http.Server{
 		Addr: address,
-		Handler: &sugarMux{
-			router: s.router,
-			config: s.config,
-		},
+		Handler: s,
 	}
 	fmt.Printf(">> Sugar started on port %d <<\n",s.config.Port)
 	err := server.ListenAndServe()
@@ -186,38 +186,38 @@ func (s *sugar) Listen() {
 }
 
 func (s *sugar) Middleware(url string, handler func(*SugarContext) error) {
-	s.router.middlewares = append(s.router.middlewares, &SugarMiddleware{
+	s.middlewares = append(s.middlewares, &SugarMiddleware{
 		URL: url,
 		Handler: handler,
 	})
 }
 
-func (s *sugar) Get(path string, sh sugarHandler, shs ...sugarHandler) {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
-	s.router.routes = append(s.router.routes, &route{method: http.MethodGet, path: path, handler: sh, extraHandlers: shs, segments: segments})
+func (router *sugarRouter) Get(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
+	router.routes = append(router.routes, &route{method: http.MethodGet, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (s *sugar) Post(path string, sh sugarHandler) {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
-	s.router.routes = append(s.router.routes, &route{method: http.MethodPost, path: path, handler: sh, segments: segments})
+func (router *sugarRouter) Post(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
+	router.routes = append(router.routes, &route{method: http.MethodPost, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (s *sugar) Delete(path string, sh sugarHandler) {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
-	s.router.routes = append(s.router.routes, &route{method: http.MethodDelete, path: path, handler: sh, segments: segments})
+func (router *sugarRouter) Delete(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
+	router.routes = append(router.routes, &route{method: http.MethodDelete, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (s *sugar) Patch(path string, sh sugarHandler) {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
-	s.router.routes = append(s.router.routes, &route{method: http.MethodPatch, path: path, handler: sh, segments: segments})
+func (router *sugarRouter) Patch(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
+	router.routes = append(router.routes, &route{method: http.MethodPatch, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (s *sugar) Put(path string, sh sugarHandler) {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
-	s.router.routes = append(s.router.routes, &route{method: http.MethodPut, path: path, handler: sh, segments: segments})
+func (router *sugarRouter) Put(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
+	router.routes = append(router.routes, &route{method: http.MethodPut, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (s *sugar) Static(folderPath string, urlPath string) {
+func (s *sugarRouter) Static(folderPath string, urlPath string) {
 	staticFolderHandler := func (ctx *SugarContext) error {
 		fileName := ctx.Request.Params["file"]
 		cleanPath := filepath.Clean(fileName)
@@ -245,7 +245,7 @@ func (s *sugar) Static(folderPath string, urlPath string) {
 	p := urlPath + "/*file"
 	segments := strings.Split(strings.Trim(p, "/"), "/")
 
-	s.router.routes = append(s.router.routes, &route{method: http.MethodGet, path:p, handler: staticFolderHandler, segments: segments})
+	s.routes = append(s.routes, &route{method: http.MethodGet, path:p, handler: staticFolderHandler, segments: segments})
 }
 
 func New(config Config) *sugar {
@@ -255,8 +255,20 @@ func New(config Config) *sugar {
 
 	return &sugar{
 		config: &config,
-		router: &sugarRouter{},
+		routers: []*sugarRouter{},
 	}
+}
+
+func (s *sugar) Group(prefix string) *sugarRouter {
+	router := &sugarRouter{prefix: prefix}
+	s.routers = append(s.routers, router)
+	return router
+}
+
+func (s *sugar) Router() *sugarRouter {
+	router := &sugarRouter{}
+	s.routers = append(s.routers, router)
+	return router
 }
 
 func matchRoute(
@@ -264,16 +276,25 @@ func matchRoute(
 	requestSegments []string,
 ) (map[string]string, bool) {
 
-	if len(routeSegments) != len(requestSegments) {
-		return nil, false
-	}
-
 	params := map[string]string{}
 
 	for i := range routeSegments {
 
+		if i >= len(requestSegments) {
+			return nil, false
+		}
+
 		rSeg := routeSegments[i]
 		reqSeg := requestSegments[i]
+
+		if strings.HasPrefix(rSeg, "*") {
+
+			paramName := rSeg[1:]
+
+			params[paramName] = strings.Join(requestSegments[i:], "/")
+
+			return params, true
+		}
 
 		if strings.HasPrefix(rSeg, ":") {
 
@@ -287,6 +308,10 @@ func matchRoute(
 		if rSeg != reqSeg {
 			return nil, false
 		}
+	}
+
+	if len(requestSegments) != len(routeSegments) {
+		return nil, false
 	}
 
 	return params, true
