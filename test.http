@@ -1,7 +1,0 @@
-GET http://localhost:8080/files/bomboclat/a.jpg
-
-###
-GET http://localhost:8080/api
-
-###
-GET http://localhost:8080//db/123/edit/321
