@@ -1,9 +1,0 @@
-GET http://localhost:8080/files/bomboclat/a.jpg
-
-###
-GET http://localhost:8080/api
-lol: yes
-goofy: yes
-
-###
-GET http://localhost:8080/ipa/users
