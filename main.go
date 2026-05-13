@@ -14,6 +14,14 @@ func main() {
 
 	router.Static("./static", "/files")
 
+	router.Get("/db/:id/edit/:userId", func(ctx *sugar.SugarContext) error {
+		id := ctx.Request.Params["id"]
+		userId := ctx.Request.Params["userId"]
+
+		fmt.Println(id, userId)
+		return ctx.Response.Status(200).JSON(sugar.J{"success": true})
+	})
+
 	server.Middleware("/ipa/*", func(ctx *sugar.SugarContext) error {
 		fmt.Println(ctx.Request.Method)
 		ctx.Header.Add("asa", "mitaka")
@@ -28,6 +36,11 @@ func main() {
 	})
 
 	router.Get("/api", func (ctx *sugar.SugarContext) error {
+		cookie := ctx.Cookies.Get("name")
+
+		fmt.Println(cookie["Name"]) 
+		ctx.Cookies.Set(sugar.J{"name": "user", "value": "kavko"})
+		fmt.Printf("%+v", cookie)
 		if ctx.Request.Header.Get("lol") == "yes" {
 			ctx.Request.Next()
 			return nil

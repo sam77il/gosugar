@@ -2,6 +2,7 @@ package sugar
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +30,7 @@ type SugarContext struct {
 	Request *SugarRequest
 	Response *SugarResponse
 	Header http.Header
+	Cookies Cookies
 }
 
 type sugarHandler = func(*SugarContext) error
@@ -53,6 +55,44 @@ type route struct {
 	extraHandlers []sugarHandler
 	currentHandler int
 	segments []string
+}
+
+type Cookies struct {
+	req *http.Request
+	writer http.ResponseWriter
+}
+
+func (c *Cookies) Set(cookieData J) {
+	cookieBytes, err := json.Marshal(cookieData)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	var cookie http.Cookie
+	json.Unmarshal(cookieBytes, &cookie)
+	fmt.Println(cookie)
+	http.SetCookie(c.writer, &cookie)
+}
+
+func (c *Cookies) Get(name string) J {
+	cookie, err := c.req.Cookie(name)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+
+	cookieBytes, err := json.Marshal(cookie)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+	var cookieMap J
+	err = json.Unmarshal(cookieBytes, &cookieMap)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+	return cookieMap
 }
 
 type J = map[string]any
@@ -135,10 +175,14 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 				extraHandlers: route.extraHandlers,
 			},
 			Response: &SugarResponse{
-				res: w,
+				writer: w,
 				req: req,
 			},
 			Header: w.Header(),
+			Cookies: Cookies{
+				req: req,
+				writer: w,
+			},
 		}
 
 		// Checking method and adding body

@@ -54,7 +54,7 @@ func (s *SugarRequest) Next() error {
 
 	err := next(&SugarContext{
 		Request: s,
-		Response: &SugarResponse{res: s.writer},
+		Response: &SugarResponse{writer: s.writer},
 	})
 	return err
 }
