@@ -16,7 +16,10 @@ func main() {
 
 	server.Middleware("/ipa/*", func(ctx *sugar.SugarContext) error {
 		fmt.Println(ctx.Request.Method)
-		return ctx.Request.Next()
+		ctx.Header.Add("asa", "mitaka")
+		ctx.Header.Add("lol", "yes")
+		ctx.Header.Add("goofy", "yes")
+		return ctx.Response.Status(300).Redirect("/api")
 	})
 
 	ipa := server.Group("/ipa")

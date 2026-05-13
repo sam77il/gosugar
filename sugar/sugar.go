@@ -136,6 +136,7 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 			},
 			Response: &SugarResponse{
 				res: w,
+				req: req,
 			},
 			Header: w.Header(),
 		}
@@ -153,11 +154,13 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 			handlerContext.Request.extraHandlers = append(handlerContext.Request.extraHandlers, route.handler)
 			err := m.Handler(handlerContext)
 			if err != nil {
+				fmt.Println(err)
 				http.Error(w, "error on route " + route.path, 500)
 			}
 		} else {
 			err := route.handler(handlerContext)
 			if err != nil {
+				fmt.Println(err)
 				http.Error(w, "error on route " + route.path, 500)
 			}
 		}
