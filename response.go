@@ -6,13 +6,13 @@ import (
 	"net/http"
 )
 
-type SugarResponse struct {
+type Response struct {
 	writer http.ResponseWriter
 	req *http.Request
 	statusCode int
 }
 
-func (res *SugarResponse) JSON(v any) error {
+func (res *Response) JSON(v any) error {
 	if res.statusCode == 0 {
 		return errors.New("no status code given")
 	}
@@ -24,7 +24,7 @@ func (res *SugarResponse) JSON(v any) error {
 	return err
 }
 
-func (res *SugarResponse) Text(v string) error {
+func (res *Response) Text(v string) error {
 	if res.statusCode == 0 {
 		return errors.New("no status code given")
 	}
@@ -35,12 +35,12 @@ func (res *SugarResponse) Text(v string) error {
 	return err
 }
 
-func (res *SugarResponse) Status(statusCode int) *SugarResponse {
+func (res *Response) Status(statusCode int) *Response {
 	res.statusCode = statusCode
 	return res
 }
 
-func (res *SugarResponse) Redirect(url string) error {
+func (res *Response) Redirect(url string) error {
 	if res.statusCode == 0 {
 		return errors.New("no status code given")
 	}

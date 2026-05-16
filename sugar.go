@@ -17,25 +17,25 @@ import (
 
 type sugar struct {
 	config *Config
-	routers []*sugarRouter
-	middlewares []*SugarMiddleware
+	routers []*Router
+	middlewares []*Middleware
 }
 
-type sugarRouter struct {
+type Router struct {
 	prefix string
 	routes []*route
 }
 
-type SugarContext struct {
-	Request *SugarRequest
-	Response *SugarResponse
+type Context struct {
+	Request *Request
+	Response *Response
 	Header http.Header
 	Cookies Cookies
 }
 
-type sugarHandler = func(*SugarContext) error
+type sugarHandler = func(*Context) error
 
-type SugarMiddleware struct {
+type Middleware struct {
 	URL string
 	Handler sugarHandler
 }
@@ -128,7 +128,7 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	mwIndex := slices.IndexFunc(s.middlewares, func(m *SugarMiddleware) bool {
+	mwIndex := slices.IndexFunc(s.middlewares, func(m *Middleware) bool {
 		requestSegments := strings.Split(req.URL.Path, "/")
 		mwPathSegments := strings.Split(m.URL, "/")
 		starIndex := slices.Index(mwPathSegments, "*")
@@ -158,8 +158,8 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 			}
 		}
 		ip, port, err := net.SplitHostPort(req.RemoteAddr)
-		handlerContext := &SugarContext{
-			Request: &SugarRequest{
+		handlerContext := &Context{
+			Request: &Request{
 				Method: req.Method,
 				Header: req.Header,
 				URL:    req.URL.Path,
@@ -168,13 +168,14 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 					Port: port,
 					Extended: req.RemoteAddr,
 				},
+				UserAgent: req.UserAgent(),
 				req:    req,
 				GoCtx: ctx,
 				Params: params,
 				writer: w,
 				extraHandlers: route.extraHandlers,
 			},
-			Response: &SugarResponse{
+			Response: &Response{
 				writer: w,
 				req: req,
 			},
@@ -232,40 +233,40 @@ func (s *sugar) Listen() {
 	}
 }
 
-func (s *sugar) Middleware(url string, handler func(*SugarContext) error) {
-	s.middlewares = append(s.middlewares, &SugarMiddleware{
+func (s *sugar) Middleware(url string, handler func(*Context) error) {
+	s.middlewares = append(s.middlewares, &Middleware{
 		URL: url,
 		Handler: handler,
 	})
 }
 
-func (router *sugarRouter) Get(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+func (router *Router) Get(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
 	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
 	router.routes = append(router.routes, &route{method: http.MethodGet, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (router *sugarRouter) Post(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+func (router *Router) Post(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
 	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
 	router.routes = append(router.routes, &route{method: http.MethodPost, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (router *sugarRouter) Delete(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+func (router *Router) Delete(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
 	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
 	router.routes = append(router.routes, &route{method: http.MethodDelete, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (router *sugarRouter) Patch(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+func (router *Router) Patch(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
 	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
 	router.routes = append(router.routes, &route{method: http.MethodPatch, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (router *sugarRouter) Put(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
+func (router *Router) Put(path string, sh sugarHandler, extrahandlers ...sugarHandler) {
 	segments := strings.Split(strings.Trim(router.prefix + path, "/"), "/")
 	router.routes = append(router.routes, &route{method: http.MethodPut, path: router.prefix + path, handler: sh, segments: segments, extraHandlers: extrahandlers})
 }
 
-func (s *sugarRouter) Static(folderPath string, urlPath string) {
-	staticFolderHandler := func (ctx *SugarContext) error {
+func (s *Router) Static(folderPath string, urlPath string) {
+	staticFolderHandler := func (ctx *Context) error {
 		fileName := ctx.Request.Params["file"]
 		cleanPath := filepath.Clean(fileName)
 		
@@ -302,18 +303,18 @@ func New(config Config) *sugar {
 
 	return &sugar{
 		config: &config,
-		routers: []*sugarRouter{},
+		routers: []*Router{},
 	}
 }
 
-func (s *sugar) Group(prefix string) *sugarRouter {
-	router := &sugarRouter{prefix: prefix}
+func (s *sugar) Group(prefix string) *Router {
+	router := &Router{prefix: prefix}
 	s.routers = append(s.routers, router)
 	return router
 }
 
-func (s *sugar) Router() *sugarRouter {
-	router := &sugarRouter{}
+func (s *sugar) Router() *Router {
+	router := &Router{}
 	s.routers = append(s.routers, router)
 	return router
 }

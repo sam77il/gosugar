@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-type SugarRequest struct {
+type Request struct {
 	Method           string
 	HTTPVersion      string
 	HTTPVersionMajor int
@@ -15,6 +15,7 @@ type SugarRequest struct {
 	Body             []byte
 	URL              string
 	IP IP
+	UserAgent string
 	GoCtx         context.Context
 	req              *http.Request
 	writer http.ResponseWriter
@@ -30,7 +31,7 @@ type IP struct {
 	Port string
 }
 
-func (s *SugarRequest) GetQuery(query string) string {
+func (s *Request) GetQuery(query string) string {
 	queries := s.req.URL.Query()
 	if queries[query][0] != "" {
 		return  queries[query][0]
@@ -38,12 +39,12 @@ func (s *SugarRequest) GetQuery(query string) string {
 	return ""
 }
 
-func (s *SugarRequest) AddCtx(key any, value any) {
+func (s *Request) AddCtx(key any, value any) {
 	s.GoCtx = context.WithValue(s.GoCtx, key, value)
 	s.req = s.req.WithContext(s.GoCtx)
 }
 
-func (s *SugarRequest) Next() error {
+func (s *Request) Next() error {
 	if s.currentHandler >= len(s.extraHandlers) {
 		fmt.Println("no handlers")
 		return nil
@@ -52,9 +53,9 @@ func (s *SugarRequest) Next() error {
 	next := s.extraHandlers[s.currentHandler]
 	s.currentHandler++
 
-	err := next(&SugarContext{
+	err := next(&Context{
 		Request: s,
-		Response: &SugarResponse{writer: s.writer},
+		Response: &Response{writer: s.writer},
 	})
 	return err
 }
