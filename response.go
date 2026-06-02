@@ -16,22 +16,23 @@ func (res *Response) JSON(v any) error {
 	if res.statusCode == 0 {
 		return errors.New("no status code given")
 	}
-	res.writer.WriteHeader(res.statusCode)
+
 	res.writer.Header().Set("Content-Type", "application/json")
+	res.writer.WriteHeader(res.statusCode)
+
 	enc := json.NewEncoder(res.writer)
-	err := enc.Encode(v)
-	
-	return err
+	return enc.Encode(v)
 }
 
 func (res *Response) Text(v string) error {
 	if res.statusCode == 0 {
 		return errors.New("no status code given")
 	}
-	res.writer.WriteHeader(res.statusCode)
+	
 	res.writer.Header().Set("Content-Type", "text/plain")
+	res.writer.WriteHeader(res.statusCode)
+	
 	_, err := res.writer.Write([]byte(v))
-
 	return err
 }
 

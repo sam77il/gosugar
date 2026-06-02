@@ -32,9 +32,16 @@ type IP struct {
 }
 
 func (s *Request) GetQuery(query string) string {
-	queries := s.req.URL.Query()
-	if queries[query][0] != "" {
-		return  queries[query][0]
+	vals, ok := s.req.URL.Query()[query]
+	if ok && len(vals) > 0 {
+		return vals[0]
+	}
+	return ""
+}
+
+func (s *Request) GetParam(key string) string {
+	if s.Params[key] != "" {
+		return s.Params[key]
 	}
 	return ""
 }
