@@ -120,6 +120,34 @@ func (s *sugar) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
+
+	if s.config.DefaultNotFoundHandler != nil {
+		ctx := &Context{
+			Request: &Request{
+				Method: req.Method,
+				Header: req.Header,
+				URL:    req.URL.Path,
+				UserAgent: req.UserAgent(),
+				req:    req,
+				writer: w,
+			},
+			Response: &Response{
+				writer: w,
+				req: req,
+				config: s.config,
+			},
+			Header: w.Header(),
+			Cookies: Cookies{
+				req: req,
+				writer: w,
+			},
+		}
+		err := s.config.DefaultNotFoundHandler(ctx)
+		if err != nil {
+			fmt.Println(err)
+		}
+		return
+	}
 	http.Error(w, "route not found", 404)
 }
 
@@ -170,7 +198,7 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 				},
 				UserAgent: req.UserAgent(),
 				req:    req,
-				GoCtx: ctx,
+				Context: ctx,
 				Params: params,
 				writer: w,
 				extraHandlers: route.extraHandlers,
@@ -178,6 +206,7 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 			Response: &Response{
 				writer: w,
 				req: req,
+				config: s.config,
 			},
 			Header: w.Header(),
 			Cookies: Cookies{
@@ -199,12 +228,30 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 			handlerContext.Request.extraHandlers = append(handlerContext.Request.extraHandlers, route.handler)
 			err := m.Handler(handlerContext)
 			if err != nil {
+				if s.config.DefaultErrorHandler != nil {
+					err := s.config.DefaultErrorHandler(handlerContext)
+					if err != nil {
+						fmt.Println(err)
+						http.Error(w, "error on route " + route.path, 500)
+					}
+					return
+				}
+
 				fmt.Println(err)
 				http.Error(w, "error on route " + route.path, 500)
 			}
 		} else {
 			err := route.handler(handlerContext)
 			if err != nil {
+				if s.config.DefaultErrorHandler != nil {
+					err := s.config.DefaultErrorHandler(handlerContext)
+					if err != nil {
+						fmt.Println(err)
+						http.Error(w, "error on route " + route.path, 500)
+					}
+					return
+				}
+
 				fmt.Println(err)
 				http.Error(w, "error on route " + route.path, 500)
 			}
@@ -226,6 +273,9 @@ func (s *sugar) Listen() {
 		Handler: s,
 	}
 	fmt.Printf(">> Sugar started on port %d <<\n",s.config.Port)
+	if s.config.BeforeServerStart != nil {
+		s.config.BeforeServerStart()
+	}
 	err := server.ListenAndServe()
 	if err != nil {
 		fmt.Println(err.Error())

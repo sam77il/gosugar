@@ -16,7 +16,7 @@ type Request struct {
 	URL              string
 	IP IP
 	UserAgent string
-	GoCtx         context.Context
+	Context         context.Context
 	req              *http.Request
 	writer http.ResponseWriter
 	Params map[string]string
@@ -47,8 +47,8 @@ func (s *Request) GetParam(key string) string {
 }
 
 func (s *Request) AddCtx(key any, value any) {
-	s.GoCtx = context.WithValue(s.GoCtx, key, value)
-	s.req = s.req.WithContext(s.GoCtx)
+	s.Context = context.WithValue(s.Context, key, value)
+	s.req = s.req.WithContext(s.Context)
 }
 
 func (s *Request) Next() error {
