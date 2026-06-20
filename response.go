@@ -3,7 +3,9 @@ package sugar
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"time"
 )
 
 type Response struct {
@@ -22,7 +24,7 @@ func (res *Response) JSON(v any) error {
 		res.writer.Header().Set("Content-Type", "application/json")
 	}
 	if !res.config.DisableDefaultDate {
-		res.writer.Header().Set("Date", http.TimeFormat)
+		res.writer.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 	}
 	res.setDefaultHeaders()	
 	res.writer.WriteHeader(res.statusCode)
@@ -40,12 +42,12 @@ func (res *Response) Text(v string) error {
 		res.writer.Header().Set("Content-Type", "text/plain")
 	}
 	if !res.config.DisableDefaultDate {
-		res.writer.Header().Set("Date", http.TimeFormat)
+		res.writer.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 	}
 	res.setDefaultHeaders()
 	res.writer.WriteHeader(res.statusCode)
 	
-	_, err := res.writer.Write([]byte(v))
+	_, err := io.WriteString(res.writer, v)
 	return err
 }
 

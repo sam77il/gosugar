@@ -12,13 +12,19 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
 type sugar struct {
-	config *Config
-	routers []*Router
-	middlewares []*Middleware
+	config               *Config
+	routers              []*Router
+	middlewares          []*Middleware
+	corsAllowMethods     string
+	corsAllowHeaders     string
+	corsAllowCredentials string
+	tree                 *routeTree
+	treeOnce             sync.Once
 }
 
 type Router struct {
@@ -36,8 +42,10 @@ type Context struct {
 type sugarHandler = func(*Context) error
 
 type Middleware struct {
-	URL string
-	Handler sugarHandler
+	URL      string
+	Handler  sugarHandler
+	segments []string
+	starIdx  int
 }
 
 type CorsSettings struct {
@@ -49,12 +57,11 @@ type CorsSettings struct {
 }
 
 type route struct {
-	path string
-	method string
-	handler sugarHandler
+	path          string
+	method        string
+	handler       sugarHandler
 	extraHandlers []sugarHandler
-	currentHandler int
-	segments []string
+	segments      []string
 }
 
 type Cookies struct {
@@ -98,52 +105,34 @@ func (c *Cookies) Get(name string) J {
 type J = map[string]any
 
 func (s *sugar) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	s.buildTree()
 	requestSegments := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
 	w.Header().Add("X-Powered-By", "Sugar")
-	for _, router := range s.routers {
-		for _, route := range router.routes {
-			if route.method != req.Method {
-				continue
-			}
 
-			params, ok :=
-				matchRoute(
-					route.segments,
-					requestSegments,
-				)
-
-				if !ok {
-				continue
-			}
-
-			s.handleRoute(w, req, route, params)
-			return
-		}
+	if r, params, ok := s.tree.match(req.Method, requestSegments); ok {
+		s.handleRoute(w, req, r, params)
+		return
 	}
 
 	if s.config.DefaultNotFoundHandler != nil {
-		ctx := &Context{
-			Request: &Request{
-				Method: req.Method,
-				Header: req.Header,
-				URL:    req.URL.Path,
-				UserAgent: req.UserAgent(),
-				req:    req,
-				writer: w,
-			},
-			Response: &Response{
-				writer: w,
-				req: req,
-				config: s.config,
-			},
-			Header: w.Header(),
-			Cookies: Cookies{
-				req: req,
-				writer: w,
-			},
+		ctx := acquireContext()
+		defer releaseContext(ctx)
+		*ctx.Request = Request{
+			Method:    req.Method,
+			Header:    req.Header,
+			URL:       req.URL.Path,
+			UserAgent: req.UserAgent(),
+			req:       req,
+			writer:    w,
 		}
-		err := s.config.DefaultNotFoundHandler(ctx)
-		if err != nil {
+		*ctx.Response = Response{
+			writer: w,
+			req:    req,
+			config: s.config,
+		}
+		ctx.Header = w.Header()
+		ctx.Cookies = Cookies{req: req, writer: w}
+		if err := s.config.DefaultNotFoundHandler(ctx); err != nil {
 			fmt.Println(err)
 		}
 		return
@@ -156,123 +145,111 @@ func (s *sugar) handleRoute(w http.ResponseWriter, req *http.Request, route *rou
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	reqSegs := strings.Split(req.URL.Path, "/")
 	mwIndex := slices.IndexFunc(s.middlewares, func(m *Middleware) bool {
-		requestSegments := strings.Split(req.URL.Path, "/")
-		mwPathSegments := strings.Split(m.URL, "/")
-		starIndex := slices.Index(mwPathSegments, "*")
-		if starIndex >= 0 {
-			return slices.Equal(requestSegments[:starIndex], mwPathSegments[:starIndex])
+		if m.starIdx >= 0 {
+			if len(reqSegs) < m.starIdx {
+				return false
+			}
+			return slices.Equal(reqSegs[:m.starIdx], m.segments[:m.starIdx])
 		}
-		return slices.Equal(requestSegments, mwPathSegments)
+		return slices.Equal(reqSegs, m.segments)
 	})
 
-	resDone := make(chan int)
-	go func() {
-		defer close(resDone)
+	if s.config.Cors.Enabled {
+		origin := req.Header.Get("Origin")
 
-		if s.config.Cors.Enabled {
-			origin := req.Header.Get("Origin")
-
-			if origin != "" && slices.Contains(s.config.Cors.Origins, origin) {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", strings.Join(s.config.Cors.Methods, ", "))
-				w.Header().Set("Access-Control-Allow-Headers", strings.Join(s.config.Cors.Headers, ", "))
-				w.Header().Set("Access-Control-Allow-Credentials", fmt.Sprintf("%t", s.config.Cors.Credentials))
-			}
-
-			if req.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-		}
-		ip, port, err := net.SplitHostPort(req.RemoteAddr)
-		handlerContext := &Context{
-			Request: &Request{
-				Method: req.Method,
-				Header: req.Header,
-				URL:    req.URL.Path,
-				IP: IP{
-					Adress: ip,
-					Port: port,
-					Extended: req.RemoteAddr,
-				},
-				UserAgent: req.UserAgent(),
-				req:    req,
-				Context: ctx,
-				Params: params,
-				writer: w,
-				extraHandlers: route.extraHandlers,
-			},
-			Response: &Response{
-				writer: w,
-				req: req,
-				config: s.config,
-			},
-			Header: w.Header(),
-			Cookies: Cookies{
-				req: req,
-				writer: w,
-			},
+		if origin != "" && slices.Contains(s.config.Cors.Origins, origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", s.corsAllowMethods)
+			w.Header().Set("Access-Control-Allow-Headers", s.corsAllowHeaders)
+			w.Header().Set("Access-Control-Allow-Credentials", s.corsAllowCredentials)
 		}
 
-		// Checking method and adding body
-		bodyContent, err := io.ReadAll(req.Body)
+		if req.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+
+	ip, port, _ := net.SplitHostPort(req.RemoteAddr)
+
+	handlerContext := acquireContext()
+	defer releaseContext(handlerContext)
+	*handlerContext.Request = Request{
+		Method:        req.Method,
+		Header:        req.Header,
+		URL:           req.URL.Path,
+		IP:            IP{Adress: ip, Port: port, Extended: req.RemoteAddr},
+		UserAgent:     req.UserAgent(),
+		req:           req,
+		Context:       ctx,
+		config:        s.config,
+		Params:        params,
+		writer:        w,
+		extraHandlers: route.extraHandlers,
+	}
+	*handlerContext.Response = Response{
+		writer: w,
+		req:    req,
+		config: s.config,
+	}
+	handlerContext.Header = w.Header()
+	handlerContext.Cookies = Cookies{req: req, writer: w}
+
+	var (
+		bodyContent []byte
+		err         error
+	)
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		bodyContent, err = io.ReadAll(req.Body)
 		if err != nil {
 			fmt.Println("Error parsing body")
 			return
 		}
-		handlerContext.Request.Body = bodyContent
+	}
+	handlerContext.Request.Body = bodyContent
 
-		if mwIndex >= 0 {
-			m := s.middlewares[mwIndex]
-			handlerContext.Request.extraHandlers = append(handlerContext.Request.extraHandlers, route.handler)
-			err := m.Handler(handlerContext)
-			if err != nil {
-				if s.config.DefaultErrorHandler != nil {
-					err := s.config.DefaultErrorHandler(handlerContext)
-					if err != nil {
-						fmt.Println(err)
-						http.Error(w, "error on route " + route.path, 500)
-					}
-					return
-				}
+	if mwIndex >= 0 {
+		m := s.middlewares[mwIndex]
+		handlerContext.Request.extraHandlers = append(handlerContext.Request.extraHandlers, route.handler)
+		err = m.Handler(handlerContext)
+	} else {
+		err = route.handler(handlerContext)
+	}
 
+	if err != nil {
+		if s.config.DefaultErrorHandler != nil {
+			if err := s.config.DefaultErrorHandler(handlerContext); err != nil {
 				fmt.Println(err)
-				http.Error(w, "error on route " + route.path, 500)
+				http.Error(w, "error on route "+route.path, 500)
 			}
-		} else {
-			err := route.handler(handlerContext)
-			if err != nil {
-				if s.config.DefaultErrorHandler != nil {
-					err := s.config.DefaultErrorHandler(handlerContext)
-					if err != nil {
-						fmt.Println(err)
-						http.Error(w, "error on route " + route.path, 500)
-					}
-					return
-				}
-
-				fmt.Println(err)
-				http.Error(w, "error on route " + route.path, 500)
-			}
+			return
 		}
-	}()
-
-	select {
-	case <- ctx.Done():
-		http.Error(w, "Request timed out", http.StatusGatewayTimeout)
-	case <- resDone:
-		
+		fmt.Println(err)
+		http.Error(w, "error on route "+route.path, 500)
 	}
 }
 
+func (s *sugar) buildTree() {
+	s.treeOnce.Do(func() {
+		s.tree = buildRouteTree(s.routers)
+	})
+}
+
 func (s *sugar) Listen() {
+	s.buildTree()
 	address := fmt.Sprintf(":%d", s.config.Port)
 	server := &http.Server{
-		Addr: address,
-		Handler: s,
+		Addr:              address,
+		Handler:           s,
+		ReadHeaderTimeout: s.config.ReadHeaderTimeout,
+		ReadTimeout:       s.config.ReadTimeout,
+		WriteTimeout:      s.config.WriteTimeout,
+		IdleTimeout:       s.config.IdleTimeout,
+		MaxHeaderBytes:    s.config.MaxHeaderBytes,
 	}
-	fmt.Printf(">> Sugar started on port %d <<\n",s.config.Port)
+	fmt.Printf(">> Sugar started on port %d <<\n", s.config.Port)
 	if s.config.BeforeServerStart != nil {
 		s.config.BeforeServerStart()
 	}
@@ -284,9 +261,12 @@ func (s *sugar) Listen() {
 }
 
 func (s *sugar) Middleware(url string, handler func(*Context) error) {
+	segs := strings.Split(url, "/")
 	s.middlewares = append(s.middlewares, &Middleware{
-		URL: url,
-		Handler: handler,
+		URL:      url,
+		Handler:  handler,
+		segments: segs,
+		starIdx:  slices.Index(segs, "*"),
 	})
 }
 
@@ -325,11 +305,8 @@ func (s *Router) Static(folderPath string, urlPath string) {
 		}
 
 		fullPath := filepath.Join(folderPath, cleanPath)
-		fmt.Println(fullPath)
 		absBase, _ := filepath.Abs(folderPath)
 		absFile, _ := filepath.Abs(fullPath)
-		fmt.Println(absBase)
-		fmt.Println(absFile)
 
 		if !strings.HasPrefix(absFile, absBase) {
 			return errors.New("access denied")
@@ -350,11 +327,32 @@ func New(config Config) *sugar {
 	if config.Timeout == 0 {
 		config.Timeout = time.Second * 30
 	}
+	if config.ReadHeaderTimeout == 0 {
+		config.ReadHeaderTimeout = time.Second * 5
+	}
+	if config.ReadTimeout == 0 {
+		config.ReadTimeout = time.Second * 30
+	}
+	if config.WriteTimeout == 0 {
+		config.WriteTimeout = time.Second * 30
+	}
+	if config.IdleTimeout == 0 {
+		config.IdleTimeout = time.Second * 120
+	}
+	if config.MaxHeaderBytes == 0 {
+		config.MaxHeaderBytes = 1 << 20 // 1 MB
+	}
 
-	return &sugar{
-		config: &config,
+	s := &sugar{
+		config:  &config,
 		routers: []*Router{},
 	}
+	if config.Cors.Enabled {
+		s.corsAllowMethods = strings.Join(config.Cors.Methods, ", ")
+		s.corsAllowHeaders = strings.Join(config.Cors.Headers, ", ")
+		s.corsAllowCredentials = fmt.Sprintf("%t", config.Cors.Credentials)
+	}
+	return s
 }
 
 func (s *sugar) Group(prefix string) *Router {
@@ -369,48 +367,3 @@ func (s *sugar) Router() *Router {
 	return router
 }
 
-func matchRoute(
-	routeSegments []string,
-	requestSegments []string,
-) (map[string]string, bool) {
-
-	params := map[string]string{}
-
-	for i := range routeSegments {
-
-		if i >= len(requestSegments) {
-			return nil, false
-		}
-
-		rSeg := routeSegments[i]
-		reqSeg := requestSegments[i]
-
-		if strings.HasPrefix(rSeg, "*") {
-
-			paramName := rSeg[1:]
-
-			params[paramName] = strings.Join(requestSegments[i:], "/")
-
-			return params, true
-		}
-
-		if strings.HasPrefix(rSeg, ":") {
-
-			paramName := rSeg[1:]
-
-			params[paramName] = reqSeg
-
-			continue
-		}
-
-		if rSeg != reqSeg {
-			return nil, false
-		}
-	}
-
-	if len(requestSegments) != len(routeSegments) {
-		return nil, false
-	}
-
-	return params, true
-}

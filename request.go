@@ -14,15 +14,16 @@ type Request struct {
 	Header           http.Header
 	Body             []byte
 	URL              string
-	IP IP
-	UserAgent string
-	Context         context.Context
+	IP               IP
+	UserAgent        string
+	Context          context.Context
 	req              *http.Request
-	writer http.ResponseWriter
-	Params map[string]string
-	next sugarHandler
-	extraHandlers []sugarHandler
-	currentHandler int
+	writer           http.ResponseWriter
+	config           *Config
+	Params           map[string]string
+	next             sugarHandler
+	extraHandlers    []sugarHandler
+	currentHandler   int
 }
 
 type IP struct {
@@ -62,7 +63,7 @@ func (s *Request) Next() error {
 
 	err := next(&Context{
 		Request: s,
-		Response: &Response{writer: s.writer},
+		Response: &Response{writer: s.writer, config: s.config},
 	})
 	return err
 }
